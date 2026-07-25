@@ -1,0 +1,18 @@
+{
+    "lote_id": "LOTE-101",
+    "nombre": "Lote Norte 4",
+    "cultivo": "Soja",
+    "recomendacion": {
+      "estado": "OPTIMO",
+      "color": "VERDE",
+      "titulo": "Condiciones óptimas para la siembra 🌿",
+      "mensaje": "El porcentaje de humedad (25%) y el pH (6.5) están en los rangos idóneos. No se prevén lluvias extremas en las próximas 48 horas.",
+      "accion_sugerida": "Puedes proceder con la siembra de Soja inmediatamente."
+    },
+    "alertas": [
+      {
+        "tipo": "INFO",
+        "mensaje": "Materia orgánica en nivel medio. Se sugiere compost o enmienda orgánica tras la cosecha."
+      }
+    ]
+  }
