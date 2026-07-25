@@ -79,8 +79,11 @@ export default function LoteForm({ onSubmit, isLoading = false }: LoteFormProps)
 
       {/* SECCIÓN 1: DATOS GENERALES Y UBICACIÓN */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-green-700 uppercase tracking-wider">
-          1. Información del Lote y GPS
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-green-700 uppercase tracking-wider">
+          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-green-600 text-white text-xs font-black shadow-sm">
+            1
+          </span>
+          Información del Lote y GPS
         </h3>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -144,8 +147,11 @@ export default function LoteForm({ onSubmit, isLoading = false }: LoteFormProps)
 
       {/* SECCIÓN 2: CONDICIONES DEL SUELO */}
       <div className="space-y-4 pt-2 border-t border-slate-100">
-        <h3 className="text-sm font-semibold text-green-700 uppercase tracking-wider">
-          2. Carga Manual de Suelo
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-green-700 uppercase tracking-wider">
+          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-green-600 text-white text-xs font-black shadow-sm">
+            2
+          </span>
+          Carga Manual de Suelo
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -205,10 +211,13 @@ export default function LoteForm({ onSubmit, isLoading = false }: LoteFormProps)
       <button
         type="submit"
         disabled={isLoading}
-        className="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-md transition-all duration-200 flex items-center justify-center space-x-2 disabled:opacity-50"
+        className="w-full py-3 px-4 bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-700 hover:to-emerald-600 text-white font-bold rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 hover:scale-[1.01] active:scale-[0.99]"
       >
         {isLoading ? (
-          <span>Analizando condiciones...</span>
+          <>
+            <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <span>Analizando condiciones...</span>
+          </>
         ) : (
           <span>Evaluar Recomendación de Siembra 🚀</span>
         )}
