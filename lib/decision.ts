@@ -43,6 +43,7 @@ export interface ResultadoReglas {
     tempSueloMedia48h_C: number;
     rafagaMax48h_kmh: number;
     humedadSueloModelo_pct: number | null;
+    humedadAireMedia48h_pct: number | null;
   };
 }
 
@@ -107,8 +108,15 @@ const LLUVIA_48H_BLOQUEO_MM = 40; // lluvia fuerte → no sembrar
 const HUMEDAD_SATURACION_PCT = 60; // suelo saturado → no sembrar
 const SEQUIA_7D_MM = 5; // casi sin lluvia en la semana
 const RAFAGA_WARN_KMH = 60; // viento fuerte complica labores
+// Humedad relativa del aire (promedio 48 h): fuera de este rango → bloqueo.
+// >92% sostenida = alto riesgo de hongos; <25% = desecación extrema.
+const HUM_AIRE_MIN_PCT = 25;
+const HUM_AIRE_MAX_PCT = 92;
 // Open-Meteo entrega humedad de suelo en m³/m³; ~0.45 se considera saturación
 const SATURACION_VOLUMETRICA = 0.45;
+// Humedad satelital por debajo de este % (sin medición de campo) indica que
+// el pin cayó en un lago, río, mar o zona sin suelo cultivable
+const HUMEDAD_MODELO_MINIMA_PCT = 2;
 
 function promedio(valores: number[]): number {
   if (!valores.length) return NaN;
@@ -150,6 +158,9 @@ export function evaluarCondiciones(
   const rafagaMax48h = redondear(
     Math.max(...clima.hourly.wind_gusts_10m.slice(0, 48))
   );
+  const humedadAire48h = redondear(
+    promedio(clima.hourly.relative_humidity_2m.slice(0, 48))
+  );
 
   // Humedad del modelo satelital (proxy si no hay medición de campo)
   const humedadVolumetrica = promedio(
@@ -161,8 +172,30 @@ export function evaluarCondiciones(
         Math.min(100, (humedadVolumetrica / SATURACION_VOLUMETRICA) * 100)
       );
 
+  // ---- Detección de ubicación inválida (lago, río, mar o sin suelo) ----
+  // Si el productor no midió humedad y el modelo satelital reporta casi 0,
+  // el pin muy probablemente cayó sobre agua o terreno no cultivable.
+  const ubicacionInvalida =
+    entrada.humedadSuelo === undefined &&
+    (humedadModelo === null || humedadModelo < HUMEDAD_MODELO_MINIMA_PCT);
+
+  if (ubicacionInvalida) {
+    factores.push({
+      nombre: "Ubicación del lote",
+      valor:
+        humedadModelo === null
+          ? "sin datos de suelo satelitales"
+          : `humedad satelital ${humedadModelo}%`,
+      nivel: "BLOQUEO",
+      detalle:
+        "Los datos satelitales indican ausencia de suelo cultivable en estas coordenadas (posible lago, río o mar). Mueve el pin del mapa a tierra agrícola y vuelve a evaluar.",
+    });
+  }
+
   // ---- Factor: humedad del suelo ----
-  const humedadEfectiva = entrada.humedadSuelo ?? humedadModelo ?? undefined;
+  const humedadEfectiva = ubicacionInvalida
+    ? undefined
+    : (entrada.humedadSuelo ?? humedadModelo ?? undefined);
   const fuenteHumedad =
     entrada.humedadSuelo !== undefined
       ? "medición de campo"
@@ -191,7 +224,11 @@ export function evaluarCondiciones(
     });
   }
 
-  if (entrada.humedadSuelo === undefined && humedadModelo !== null) {
+  if (
+    entrada.humedadSuelo === undefined &&
+    humedadModelo !== null &&
+    !ubicacionInvalida
+  ) {
     alertas.push({
       tipo: "INFO",
       mensaje: `Sin medición de humedad en campo: el agente usó el modelo satelital de Open-Meteo (${humedadModelo}%) como referencia.`,
@@ -284,6 +321,27 @@ export function evaluarCondiciones(
     });
   }
 
+  // ---- Factor: humedad relativa del aire ----
+  if (!Number.isNaN(humedadAire48h)) {
+    let nivel: NivelFactor = "OK";
+    let detalle = `Dentro del rango aceptable (${HUM_AIRE_MIN_PCT}–${HUM_AIRE_MAX_PCT}% promedio 48 h).`;
+
+    if (humedadAire48h > HUM_AIRE_MAX_PCT) {
+      nivel = "BLOQUEO";
+      detalle = `Humedad del aire sostenida por encima de ${HUM_AIRE_MAX_PCT}%: alto riesgo de hongos y enfermedades en la semilla y plántula. No se recomienda sembrar.`;
+    } else if (humedadAire48h < HUM_AIRE_MIN_PCT) {
+      nivel = "BLOQUEO";
+      detalle = `Humedad del aire por debajo de ${HUM_AIRE_MIN_PCT}%: desecación extrema que compromete la germinación. No se recomienda sembrar.`;
+    }
+
+    factores.push({
+      nombre: "Humedad del aire",
+      valor: `${humedadAire48h}% promedio 48 h`,
+      nivel,
+      detalle,
+    });
+  }
+
   // ---- Factor: viento ----
   if (!Number.isNaN(rafagaMax48h) && rafagaMax48h > RAFAGA_WARN_KMH) {
     factores.push({
@@ -337,6 +395,9 @@ export function evaluarCondiciones(
       tempSueloMedia48h_C: Number.isNaN(tempSuelo48h) ? 0 : tempSuelo48h,
       rafagaMax48h_kmh: Number.isNaN(rafagaMax48h) ? 0 : rafagaMax48h,
       humedadSueloModelo_pct: humedadModelo,
+      humedadAireMedia48h_pct: Number.isNaN(humedadAire48h)
+        ? null
+        : humedadAire48h,
     },
   };
 }
