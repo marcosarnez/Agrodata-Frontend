@@ -19,9 +19,14 @@ const luciernagas = [
   { top: "55%", left: "88%", size: "w-1.5 h-1.5", delay: "delay-100" },
 ];
 
+type EstadoGuardado =
+  | { tipo: "exito"; idLote: number }
+  | { tipo: "error"; mensaje: string };
+
 export default function DemoPage() {
   const [loading, setLoading] = useState(false);
   const [resultado, setResultado] = useState<ResultadoAnalisis | null>(null);
+  const [guardado, setGuardado] = useState<EstadoGuardado | null>(null);
   const glowRef = useRef<HTMLDivElement>(null);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -34,8 +39,24 @@ export default function DemoPage() {
   const handleFormSubmit = (data: LoteFormData) => {
     setLoading(true);
     setResultado(null);
+    setGuardado(null);
 
-    // Simulación de respuesta del backend
+    // Guardado REAL del lote en PostgreSQL (Render)
+    fetch("/api/lotes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    })
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Error desconocido");
+        setGuardado({ tipo: "exito", idLote: json.id_lote });
+      })
+      .catch((err: Error) => {
+        setGuardado({ tipo: "error", mensaje: err.message });
+      });
+
+    // Simulación de respuesta del análisis (aún sin backend de recomendaciones)
     setTimeout(() => {
       setLoading(false);
 
@@ -45,8 +66,8 @@ export default function DemoPage() {
         cultivo: data.cultivo.toUpperCase(),
       };
 
-      // Ejemplo de regla de simulación
-      if (data.humedadSuelo > 60) {
+      // Ejemplo de regla de simulación (solo si el usuario informó humedad)
+      if (data.humedadSuelo !== undefined && data.humedadSuelo > 60) {
         simData.recomendacion = {
           estado: "NO_RECOMENDADO",
           color: "ROJO",
@@ -165,6 +186,18 @@ export default function DemoPage() {
             <div className="animate-fade-in flex items-center justify-center gap-3 bg-white/10 border border-white/15 backdrop-blur rounded-2xl p-6 text-green-100 text-sm">
               <span className="w-5 h-5 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
               Analizando las condiciones de tu lote...
+            </div>
+          )}
+
+          {guardado?.tipo === "exito" && (
+            <div className="animate-fade-in max-w-2xl mx-auto flex items-center justify-center gap-2 bg-emerald-500/15 border border-emerald-400/40 backdrop-blur rounded-2xl px-4 py-3 text-emerald-200 text-sm font-semibold">
+              ✅ Lote guardado en la base de datos con ID #{guardado.idLote}
+            </div>
+          )}
+
+          {guardado?.tipo === "error" && (
+            <div className="animate-fade-in max-w-2xl mx-auto flex items-center justify-center gap-2 bg-rose-500/15 border border-rose-400/40 backdrop-blur rounded-2xl px-4 py-3 text-rose-200 text-sm font-semibold">
+              ⚠️ No se pudo guardar el lote: {guardado.mensaje}
             </div>
           )}
 

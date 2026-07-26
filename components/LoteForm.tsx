@@ -16,8 +16,8 @@ export interface LoteFormData {
   nombre: string;
   superficie: number;
   cultivo: string;
-  humedadSuelo: number;
-  phSuelo: number;
+  humedadSuelo?: number;
+  phSuelo?: number;
   materiaOrganica?: string;
   latitud: number;
   longitud: number;
@@ -33,8 +33,8 @@ export default function LoteForm({ onSubmit, isLoading = false }: LoteFormProps)
     nombre: "",
     superficie: 10,
     cultivo: "soja",
-    humedadSuelo: 25,
-    phSuelo: 6.5,
+    humedadSuelo: undefined,
+    phSuelo: undefined,
     materiaOrganica: "Media",
     latitud: -17.7833,
     longitud: -63.1821,
@@ -44,9 +44,15 @@ export default function LoteForm({ onSubmit, isLoading = false }: LoteFormProps)
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
+    const esOpcionalNumerico = name === "humedadSuelo" || name === "phSuelo";
     setFormData((prev) => ({
       ...prev,
-      [name]: e.target.type === "number" ? parseFloat(value) || 0 : value,
+      [name]:
+        e.target.type === "number"
+          ? value === "" && esOpcionalNumerico
+            ? undefined
+            : parseFloat(value) || 0
+          : value,
     }));
   };
 
@@ -157,7 +163,8 @@ export default function LoteForm({ onSubmit, isLoading = false }: LoteFormProps)
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
-              Humedad del Suelo (%)
+              Humedad del Suelo (%){" "}
+              <span className="font-normal text-slate-400">(Opcional)</span>
             </label>
             <input
               type="number"
@@ -165,8 +172,8 @@ export default function LoteForm({ onSubmit, isLoading = false }: LoteFormProps)
               min="0"
               max="100"
               step="0.5"
-              required
-              value={formData.humedadSuelo}
+              placeholder="Ej. 25 — déjalo vacío si no lo sabes"
+              value={formData.humedadSuelo ?? ""}
               onChange={handleChange}
               className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:outline-none transition"
             />
@@ -174,7 +181,8 @@ export default function LoteForm({ onSubmit, isLoading = false }: LoteFormProps)
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
-              pH del Suelo (0 - 14)
+              pH del Suelo (0 - 14){" "}
+              <span className="font-normal text-slate-400">(Opcional)</span>
             </label>
             <input
               type="number"
@@ -182,8 +190,8 @@ export default function LoteForm({ onSubmit, isLoading = false }: LoteFormProps)
               min="0"
               max="14"
               step="0.1"
-              required
-              value={formData.phSuelo}
+              placeholder="Ej. 6.5 — déjalo vacío si no lo sabes"
+              value={formData.phSuelo ?? ""}
               onChange={handleChange}
               className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:outline-none transition"
             />
