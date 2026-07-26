@@ -1,5 +1,5 @@
 /**
- * Pipeline Exa → Firecrawl → Gemini.
+ * Pipeline Exa → Firecrawl → OpenRouter (LLM).
  * Devuelve SOLO el resumen de las 10 noticias (un párrafo).
  */
 
@@ -7,6 +7,8 @@ export const maxDuration = 120;
 
 const NUM_NOTICIAS = 10;
 const MAX_CHARS_POR_NOTICIA = 4000;
+/** Modelo vía OpenRouter (el :free ya no está disponible) */
+const OPENROUTER_MODEL = "qwen/qwen3-coder";
 
 async function buscarNoticiasExa(apiKey: string) {
   const respuesta = await fetch("https://api.exa.ai/search", {
@@ -57,7 +59,7 @@ async function scrapearFirecrawl(url: string, apiKey: string) {
   }
 }
 
-async function resumirConGemini(
+async function resumirConOpenRouter(
   noticias: Array<{ titulo: string; url: string; markdown: string }>,
   apiKey: string
 ) {
@@ -76,36 +78,49 @@ async function resumirConGemini(
     bloques.join("\n\n");
 
   const respuesta = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    "https://openrouter.ai/api/v1/chat/completions",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://agrodata-frontend-mfw4.vercel.app",
+        "X-OpenRouter-Title": "AgroData SCZ",
+      },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        model: OPENROUTER_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        // Evita el default enorme (~65k) que dispara error 402 por créditos
+        max_tokens: 800,
+        temperature: 0.3,
       }),
     }
   );
 
   if (!respuesta.ok) {
     const errText = await respuesta.text();
-    throw new Error(`Gemini falló (${respuesta.status}): ${errText.slice(0, 200)}`);
+    throw new Error(
+      `OpenRouter falló (${respuesta.status}): ${errText.slice(0, 300)}`
+    );
   }
 
   const data = await respuesta.json();
-  const texto =
-    data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-  if (!texto) throw new Error("Gemini no devolvió texto");
+  const texto = data.choices?.[0]?.message?.content?.trim() || "";
+  if (!texto) throw new Error("OpenRouter no devolvió texto");
   return texto;
 }
 
 export async function GET() {
   const EXA_API_KEY = process.env.EXA_API_KEY;
   const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY;
-  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+  const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
-  if (!EXA_API_KEY || !FIRECRAWL_API_KEY || !GEMINI_API_KEY) {
+  if (!EXA_API_KEY || !FIRECRAWL_API_KEY || !OPENROUTER_API_KEY) {
     return Response.json(
-      { error: "Faltan claves API (EXA, FIRECRAWL o GEMINI) en .env.local" },
+      {
+        error:
+          "Faltan claves API (EXA, FIRECRAWL o OPENROUTER) en las variables de entorno",
+      },
       { status: 500 }
     );
   }
@@ -123,7 +138,7 @@ export async function GET() {
       });
     }
 
-    const resumen = await resumirConGemini(noticias, GEMINI_API_KEY);
+    const resumen = await resumirConOpenRouter(noticias, OPENROUTER_API_KEY);
 
     return Response.json({
       resumen,
