@@ -3,10 +3,13 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import LoteForm, { LoteFormData } from "@/components/LoteForm";
 import SemaforoResultado, { ResultadoAnalisis } from "@/components/SemaforoResultado";
 import { Leaf, Sparkle, glow } from "@/components/Decoraciones";
 import mockData from "@/data/mockResponse.json";
+import type { ClimaDatos } from "@/lib/clima";
+import { STORAGE_KEY, type DatosResultados } from "@/lib/resultados";
 
 const luciernagas = [
   { top: "15%", left: "8%", size: "w-2 h-2", delay: "delay-100" },
@@ -24,7 +27,9 @@ type EstadoGuardado =
   | { tipo: "error"; mensaje: string };
 
 export default function DemoPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [pasoCarga, setPasoCarga] = useState("");
   const [resultado, setResultado] = useState<ResultadoAnalisis | null>(null);
   const [guardado, setGuardado] = useState<EstadoGuardado | null>(null);
   const glowRef = useRef<HTMLDivElement>(null);
@@ -36,49 +41,115 @@ export default function DemoPage() {
     }
   };
 
-  const handleFormSubmit = (data: LoteFormData) => {
+  const construirRecomendacion = (data: LoteFormData): ResultadoAnalisis => {
+    const simData: ResultadoAnalisis = {
+      ...(mockData as ResultadoAnalisis),
+      nombre: data.nombre || "Lote Registrado",
+      cultivo: data.cultivo.toUpperCase(),
+    };
+
+    if (data.humedadSuelo !== undefined && data.humedadSuelo > 60) {
+      simData.recomendacion = {
+        estado: "NO_RECOMENDADO",
+        color: "ROJO",
+        titulo: "Suelo saturado de agua 🌧️",
+        mensaje:
+          "Exceso de humedad detectado. Sembrar en estas condiciones provocará pudrición de la semilla.",
+        accion_sugerida:
+          "Esperar entre 3 a 5 días a que drene el suelo antes de iniciar la siembra.",
+      };
+    }
+
+    return simData;
+  };
+
+  const handleFormSubmit = async (data: LoteFormData) => {
     setLoading(true);
     setResultado(null);
     setGuardado(null);
 
-    // Guardado REAL del lote en PostgreSQL (Render)
-    fetch("/api/lotes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    })
-      .then(async (res) => {
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || "Error desconocido");
-        setGuardado({ tipo: "exito", idLote: json.id_lote });
-      })
-      .catch((err: Error) => {
-        setGuardado({ tipo: "error", mensaje: err.message });
+    let idLote: number | undefined;
+
+    // 1) Guardar lote en PostgreSQL
+    setPasoCarga("Guardando lote en la base de datos...");
+    try {
+      const resLote = await fetch("/api/lotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
       });
+      const jsonLote = await resLote.json();
+      if (!resLote.ok) throw new Error(jsonLote.error || "Error al guardar");
+      idLote = jsonLote.id_lote;
+      setGuardado({ tipo: "exito", idLote: jsonLote.id_lote });
+    } catch (err) {
+      setGuardado({
+        tipo: "error",
+        mensaje: err instanceof Error ? err.message : "Error desconocido",
+      });
+    }
 
-    // Simulación de respuesta del análisis (aún sin backend de recomendaciones)
-    setTimeout(() => {
-      setLoading(false);
+    // 2) Clima con las coordenadas del formulario (mapa)
+    setPasoCarga("Consultando clima en la ubicación del lote...");
+    let clima: ClimaDatos | null = null;
+    let errorClima: string | undefined;
+    try {
+      const resClima = await fetch(
+        `/api/clima?lat=${data.latitud}&lon=${data.longitud}`
+      );
+      const jsonClima = await resClima.json();
+      if (!resClima.ok) throw new Error(jsonClima.error || "Error de clima");
+      clima = jsonClima as ClimaDatos;
+    } catch (err) {
+      errorClima =
+        err instanceof Error ? err.message : "No se pudo obtener el clima";
+    }
 
-      const simData: ResultadoAnalisis = {
-        ...(mockData as ResultadoAnalisis),
-        nombre: data.nombre || "Lote Registrado",
-        cultivo: data.cultivo.toUpperCase(),
-      };
-
-      // Ejemplo de regla de simulación (solo si el usuario informó humedad)
-      if (data.humedadSuelo !== undefined && data.humedadSuelo > 60) {
-        simData.recomendacion = {
-          estado: "NO_RECOMENDADO",
-          color: "ROJO",
-          titulo: "Suelo saturado de agua 🌧️",
-          mensaje: "Exceso de humedad detectado. Sembrar en estas condiciones provocará pudrición de la semilla.",
-          accion_sugerida: "Esperar entre 3 a 5 días a que drene el suelo antes de iniciar la siembra."
-        };
+    // 3) Resumen de 10 noticias (solo el párrafo)
+    setPasoCarga(
+      "Buscando noticias del sector y generando resumen (puede tardar ~1 min)..."
+    );
+    let resumenNoticias: string | null = null;
+    let fuentesNoticias: Array<{ titulo: string; url: string }> | undefined;
+    let errorNoticias: string | undefined;
+    try {
+      const resNoticias = await fetch("/api/noticias");
+      const jsonNoticias = await resNoticias.json();
+      if (!resNoticias.ok) {
+        throw new Error(jsonNoticias.error || "Error de noticias");
       }
+      resumenNoticias = jsonNoticias.resumen as string;
+      fuentesNoticias = jsonNoticias.fuentes;
+    } catch (err) {
+      errorNoticias =
+        err instanceof Error
+          ? err.message
+          : "No se pudo generar el resumen de noticias";
+    }
 
-      setResultado(simData);
-    }, 1000);
+    // 4) Recomendación (simulada por ahora)
+    const recomendacion = construirRecomendacion(data);
+    setResultado(recomendacion);
+
+    // 5) Guardar todo y abrir la pestaña de resultados
+    const payload: DatosResultados = {
+      loteNombre: data.nombre || "Lote Registrado",
+      cultivo: data.cultivo.toUpperCase(),
+      latitud: data.latitud,
+      longitud: data.longitud,
+      clima,
+      errorClima,
+      resumenNoticias,
+      fuentesNoticias,
+      errorNoticias,
+      recomendacion,
+      idLote,
+    };
+
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    setLoading(false);
+    setPasoCarga("");
+    router.push("/demo/resultados");
   };
 
   return (
@@ -86,21 +157,18 @@ export default function DemoPage() {
       onMouseMove={handleMouseMove}
       className="relative min-h-screen bg-gradient-to-b from-green-950 via-green-900 to-emerald-950 overflow-hidden"
     >
-      {/* RESPLANDOR QUE SIGUE AL MOUSE */}
       <div
         ref={glowRef}
         className="pointer-events-none fixed z-0 w-96 h-96 rounded-full bg-green-400/15 blur-3xl -translate-x-1/2 -translate-y-1/2"
         aria-hidden="true"
       />
 
-      {/* BLOBS DE FONDO */}
       <div className="pointer-events-none absolute inset-0" aria-hidden="true">
         <div className="animate-blob absolute -top-24 -right-24 w-96 h-96 bg-lime-400/15 rounded-full blur-3xl" />
         <div className="animate-blob delay-700 absolute top-1/2 -left-32 w-[26rem] h-[26rem] bg-green-500/20 rounded-full blur-3xl" />
         <div className="animate-blob delay-300 absolute bottom-0 right-1/4 w-80 h-80 bg-emerald-400/15 rounded-full blur-3xl" />
       </div>
 
-      {/* DECORACIONES FLOTANTES */}
       <div
         className="pointer-events-none absolute inset-0 hidden md:block"
         aria-hidden="true"
@@ -135,7 +203,6 @@ export default function DemoPage() {
         ))}
       </div>
 
-      {/* BARRA DE NAVEGACIÓN */}
       <nav className="sticky top-0 z-20 bg-green-950/80 backdrop-blur border-b border-white/10 shadow-md">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5 group">
@@ -150,32 +217,39 @@ export default function DemoPage() {
               AgroData <span className="text-green-400">SCZ</span>
             </span>
           </Link>
-          <Link
-            href="/"
-            className="text-xs font-semibold text-green-200 hover:text-white bg-white/10 hover:bg-white/20 border border-white/15 rounded-full px-4 py-1.5 transition"
-          >
-            ← Volver al inicio
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/demo/resultados"
+              className="text-xs font-semibold text-green-200 hover:text-white bg-white/10 hover:bg-white/20 border border-white/15 rounded-full px-4 py-1.5 transition"
+            >
+              Ver resultados
+            </Link>
+            <Link
+              href="/"
+              className="text-xs font-semibold text-green-200 hover:text-white bg-white/10 hover:bg-white/20 border border-white/15 rounded-full px-4 py-1.5 transition"
+            >
+              ← Inicio
+            </Link>
+          </div>
         </div>
       </nav>
 
-      {/* CABECERA DE LA DEMO */}
       <header className="relative z-10 text-white">
         <div className="max-w-3xl mx-auto px-4 py-10 text-center space-y-3">
           <span className="animate-fade-in animate-bounce-soft inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-green-200">
             Modo demostración
           </span>
           <h1 className="animate-fade-in delay-100 text-3xl md:text-4xl font-extrabold tracking-tight">
-            Evalúa tu lote en <span className="text-gradient-animated">segundos</span> 🚜
+            Evalúa tu lote en{" "}
+            <span className="text-gradient-animated">segundos</span> 🚜
           </h1>
           <p className="animate-fade-in delay-200 text-green-100/85 max-w-lg mx-auto text-sm md:text-base">
-            Completa los datos de tu terreno y recibe una recomendación de
-            siembra basada en suelo y clima.
+            Completa los datos, elige la ubicación en el mapa y recibe clima,
+            noticias del sector y recomendación de siembra.
           </p>
         </div>
       </header>
 
-      {/* CONTENIDO */}
       <main className="relative z-10 pb-10 px-4">
         <div className="max-w-3xl mx-auto space-y-8">
           <div className="animate-fade-in delay-300 max-w-2xl mx-auto rounded-3xl p-[3px] bg-gradient-to-br from-green-400/60 via-emerald-500/20 to-lime-400/50 shadow-2xl shadow-green-950/60">
@@ -183,29 +257,43 @@ export default function DemoPage() {
           </div>
 
           {loading && (
-            <div className="animate-fade-in flex items-center justify-center gap-3 bg-white/10 border border-white/15 backdrop-blur rounded-2xl p-6 text-green-100 text-sm">
+            <div className="animate-fade-in flex flex-col items-center justify-center gap-3 bg-white/10 border border-white/15 backdrop-blur rounded-2xl p-6 text-green-100 text-sm text-center">
               <span className="w-5 h-5 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
-              Analizando las condiciones de tu lote...
+              <span className="font-semibold">{pasoCarga || "Procesando..."}</span>
+              <span className="text-xs text-green-200/70">
+                El resumen de noticias puede tardar hasta un minuto
+              </span>
             </div>
           )}
 
-          {guardado?.tipo === "exito" && (
+          {guardado?.tipo === "exito" && !loading && (
             <div className="animate-fade-in max-w-2xl mx-auto flex items-center justify-center gap-2 bg-emerald-500/15 border border-emerald-400/40 backdrop-blur rounded-2xl px-4 py-3 text-emerald-200 text-sm font-semibold">
               ✅ Lote guardado en la base de datos con ID #{guardado.idLote}
             </div>
           )}
 
-          {guardado?.tipo === "error" && (
+          {guardado?.tipo === "error" && !loading && (
             <div className="animate-fade-in max-w-2xl mx-auto flex items-center justify-center gap-2 bg-rose-500/15 border border-rose-400/40 backdrop-blur rounded-2xl px-4 py-3 text-rose-200 text-sm font-semibold">
               ⚠️ No se pudo guardar el lote: {guardado.mensaje}
             </div>
           )}
 
-          <SemaforoResultado resultado={resultado} />
+          {resultado && !loading && (
+            <div className="space-y-4">
+              <SemaforoResultado resultado={resultado} />
+              <div className="text-center">
+                <Link
+                  href="/demo/resultados"
+                  className="inline-flex items-center gap-2 bg-green-500 hover:bg-green-400 text-green-950 font-bold px-6 py-3 rounded-xl transition"
+                >
+                  Ver clima y noticias →
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
-      {/* FOOTER */}
       <footer className="relative z-10 border-t border-white/10 py-6 text-center text-xs text-green-200/60">
         AgroData SCZ — Plataforma de optimización de siembra 🌾
       </footer>
