@@ -1,5 +1,11 @@
 # Contrato JSON — API AgroData SCZ
 
+> **Actualización:** este contrato ya está implementado dentro del propio
+> frontend en `POST /api/analizar` (Next.js route handler), que combina
+> Open-Meteo + motor de reglas (`lib/decision.ts`) + LLM. Ya no depende de un
+> backend externo en Render. La respuesta incluye además los campos extra
+> `factores`, `indicadores_clima` y `clima`.
+
 > **Este documento es la única fuente de verdad** entre Frontend y Backend
 > (según el plan de sprints, lo custodia el Integrador/PM).
 > Cualquier cambio debe acordarse aquí ANTES de tocar código, y debe

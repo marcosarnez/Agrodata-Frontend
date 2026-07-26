@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import LoteForm, { LoteFormData } from "@/components/LoteForm";
 import SemaforoResultado, { ResultadoAnalisis } from "@/components/SemaforoResultado";
 import { Leaf, Sparkle, glow } from "@/components/Decoraciones";
-import mockData from "@/data/mockResponse.json";
 import type { ClimaDatos } from "@/lib/clima";
 import { STORAGE_KEY, type DatosResultados } from "@/lib/resultados";
 
@@ -41,28 +40,6 @@ export default function DemoPage() {
     }
   };
 
-  const construirRecomendacion = (data: LoteFormData): ResultadoAnalisis => {
-    const simData: ResultadoAnalisis = {
-      ...(mockData as ResultadoAnalisis),
-      nombre: data.nombre || "Lote Registrado",
-      cultivo: data.cultivo.toUpperCase(),
-    };
-
-    if (data.humedadSuelo !== undefined && data.humedadSuelo > 60) {
-      simData.recomendacion = {
-        estado: "NO_RECOMENDADO",
-        color: "ROJO",
-        titulo: "Suelo saturado de agua 🌧️",
-        mensaje:
-          "Exceso de humedad detectado. Sembrar en estas condiciones provocará pudrición de la semilla.",
-        accion_sugerida:
-          "Esperar entre 3 a 5 días a que drene el suelo antes de iniciar la siembra.",
-      };
-    }
-
-    return simData;
-  };
-
   const handleFormSubmit = async (data: LoteFormData) => {
     setLoading(true);
     setResultado(null);
@@ -89,20 +66,32 @@ export default function DemoPage() {
       });
     }
 
-    // 2) Clima con las coordenadas del formulario (mapa)
-    setPasoCarga("Consultando clima en la ubicación del lote...");
+    // 2) Agente: clima real + motor de reglas agronómicas + explicación LLM
+    setPasoCarga("El agente está analizando clima y suelo del lote...");
     let clima: ClimaDatos | null = null;
     let errorClima: string | undefined;
+    let recomendacion: ResultadoAnalisis | null = null;
     try {
-      const resClima = await fetch(
-        `/api/clima?lat=${data.latitud}&lon=${data.longitud}`
-      );
-      const jsonClima = await resClima.json();
-      if (!resClima.ok) throw new Error(jsonClima.error || "Error de clima");
-      clima = jsonClima as ClimaDatos;
+      const resAnalisis = await fetch("/api/analizar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      const jsonAnalisis = await resAnalisis.json();
+      if (!resAnalisis.ok) {
+        throw new Error(jsonAnalisis.error || "Error al analizar el lote");
+      }
+      clima = jsonAnalisis.clima as ClimaDatos;
+      recomendacion = {
+        lote_id: jsonAnalisis.lote_id,
+        nombre: jsonAnalisis.nombre,
+        cultivo: jsonAnalisis.cultivo,
+        recomendacion: jsonAnalisis.recomendacion,
+        alertas: jsonAnalisis.alertas ?? [],
+      };
     } catch (err) {
       errorClima =
-        err instanceof Error ? err.message : "No se pudo obtener el clima";
+        err instanceof Error ? err.message : "No se pudo analizar el lote";
     }
 
     // 3) Resumen de 10 noticias (solo el párrafo)
@@ -127,8 +116,7 @@ export default function DemoPage() {
           : "No se pudo generar el resumen de noticias";
     }
 
-    // 4) Recomendación (simulada por ahora)
-    const recomendacion = construirRecomendacion(data);
+    // 4) Mostrar la recomendación real del agente
     setResultado(recomendacion);
 
     // 5) Guardar todo y abrir la pestaña de resultados
